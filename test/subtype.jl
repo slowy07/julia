@@ -587,7 +587,7 @@ function test_old()
     @test !(Type{Tuple{Nothing}} <: Tuple{Type{Nothing}})
 end
 
-const menagerie =
+const easy_menagerie =
     Any[Bottom, Any, Int, Int8, Integer, Real,
         Array{Int,1}, AbstractArray{Int,1},
         Tuple{Int,Vararg{Integer}}, Tuple{Integer,Vararg{Int}}, Tuple{},
@@ -607,12 +607,14 @@ const menagerie =
         Array{(@UnionAll T<:Int T), 1},
         (@UnionAll T<:Real @UnionAll S<:AbstractArray{T,1} Tuple{T,S}),
         Union{Int,Ref{Union{Int,Int8}}},
-        (@UnionAll T Union{Tuple{T,Array{T,1}}, Tuple{T,Array{Int,1}}}),
         ]
 
-let new = Any[]
-    # add variants of each type
-    for T in menagerie
+const hard_menagerie =
+    Any[(@UnionAll T Union{Tuple{T,Array{T,1}}, Tuple{T,Array{Int,1}}})]
+
+function add_variants!(types)
+    new = Any[]
+    for T in types
         push!(new, Ref{T})
         push!(new, Tuple{T})
         push!(new, Tuple{T,T})
@@ -620,8 +622,13 @@ let new = Any[]
         push!(new, @UnionAll S<:T S)
         push!(new, @UnionAll S<:T Ref{S})
     end
-    append!(menagerie, new)
+    append!(types, new)
 end
+
+add_variants!(easy_menagerie)
+add_variants!(hard_menagerie)
+
+const menagerie = [easy_menagerie; hard_menagerie]
 
 function test_properties()
     x→y = !x || y
@@ -1057,14 +1064,15 @@ function test_intersection()
 end
 
 function test_intersection_properties()
-    approx = Tuple{Vector{Vector{T}} where T, Vector{Vector{T}} where T}
-    for T in menagerie
-        for S in menagerie
+    for i in eachindex(menagerie)
+        T = menagerie[i]
+        for j in eachindex(menagerie)
+            S = menagerie[j]
             I = _type_intersect(T,S)
             I2 = _type_intersect(S,T)
             @test isequal_type(I, I2)
-            if I == approx
-                # TODO: some of these cases give a conservative answer
+            if i > length(easy_menagerie) || j > length(easy_menagerie)
+                # TODO: these cases give a conservative answer
                 @test issub(I, T) || issub(I, S)
             else
                 @test issub(I, T) && issub(I, S)
@@ -1796,7 +1804,7 @@ let X1 = Tuple{AlmostLU, Vector{T}} where T,
     # TODO: the quality of this intersection is not great; for now just test that it
     # doesn't stack overflow
     @test I<:X1 || I<:X2
-    actual = Tuple{AlmostLU{S, X} where X<:Matrix{S}, Vector{S}} where S<:Union{Float32, Float64}
+    actual = Tuple{Union{AlmostLU{S, X} where X<:Matrix{S}, AlmostLU{S, <:Matrix}}, Vector{S}} where S<:Union{Float32, Float64}
     @test I == actual
 end
 
@@ -1898,8 +1906,8 @@ end
 # issue #39948
 let A = Tuple{Array{Pair{T, JT} where JT<:Ref{T}, 1} where T, Vector},
     I = typeintersect(A, Tuple{Vararg{Vector{T}}} where T)
-    @test_broken I <: A
-    @test_broken !Base.has_free_typevars(I)
+    @test I <: A
+    @test !Base.has_free_typevars(I)
 end
 
 # issue #8915
@@ -1927,3 +1935,20 @@ let A = Tuple{Ref{T}, Vararg{T}} where T,
     J = typeintersect(A, C)
     @test_broken J != Union{}
 end
+
+let A = Tuple{Dict{I,T}, I, T} where T where I,
+    B = Tuple{AbstractDict{I,T}, T, I} where T where I
+    # TODO: we should probably have I == T here
+    @test typeintersect(A, B) == Tuple{Dict{I,T}, I, T} where {I, T}
+end
+
+let A = Tuple{UnionAll, Vector{Any}},
+    B = Tuple{Type{T}, T} where T<:AbstractArray,
+    I = typeintersect(A, B)
+    @test !isconcretetype(I)
+    @test_broken I == Tuple{Type{T}, Vector{Any}} where T<:AbstractArray
+end
+
+@testintersect(Tuple{Type{Vector{<:T}}, T} where {T<:Integer},
+               Tuple{Type{T}, AbstractArray} where T<:Array,
+               Bottom)
