@@ -416,6 +416,11 @@ immediately, does not block.
 
 For unbuffered channels returns `true` if there are tasks waiting
 on a [`put!`](@ref).
+
+!!! warning
+    This function isn't threadsafe. For multithreaded code, use it inside a
+    block of code which is synchronized with `lock(c)` to avoid race
+    conditions.
 """
 isready(c::Channel) = n_avail(c) > 0
 n_avail(c::Channel) = isbuffered(c) ? length(c.data) : length(c.cond_put.waitq)
@@ -427,7 +432,6 @@ unlock(c::Channel) = unlock(c.cond_take)
 trylock(c::Channel) = trylock(c.cond_take)
 
 function wait(c::Channel)
-    isready(c) && return
     lock(c)
     try
         while !isready(c)
