@@ -1547,12 +1547,17 @@ static jl_cgval_t typed_store(jl_codectx_t &ctx,
         Value *parent,  // for the write barrier, NULL if no barrier needed
         bool isboxed, AtomicOrdering Order, AtomicOrdering FailOrder, unsigned alignment,
         bool needlock, bool issetfield, bool isreplacefield, bool isswapfield, bool ismodifyfield,
-        bool maybe_null_if_boxed, const std::string &fname)
+        bool maybe_null_if_boxed, const jl_cgval_t *modifyop, const std::string &fname)
 {
     auto newval = [&](const jl_cgval_t &lhs) {
         jl_cgval_t argv[3] = { cmp, lhs, rhs };
-        Value *callval = emit_jlcall(ctx, jlapplygeneric_func, nullptr, argv, 3, JLCALL_F_CC);
-        argv[0] = mark_julia_type(ctx, callval, true, jl_any_type);
+        if (modifyop) {
+            argv[0] = emit_invoke(ctx, *modifyop, argv, 3, (jl_value_t*)jl_any_type);
+        }
+        else {
+            Value *callval = emit_jlcall(ctx, jlapplygeneric_func, nullptr, argv, 3, JLCALL_F_CC);
+            argv[0] = mark_julia_type(ctx, callval, true, jl_any_type);
+        }
         if (!jl_subtype(argv[0].typ, jltype)) {
             emit_typecheck(ctx, argv[0], jltype, fname + "typed_store");
             argv[0] = update_julia_type(ctx, argv[0], jltype);
@@ -3269,7 +3274,7 @@ static jl_cgval_t emit_setfield(jl_codectx_t &ctx,
         jl_cgval_t rhs, jl_cgval_t cmp,
         bool checked, bool wb, AtomicOrdering Order, AtomicOrdering FailOrder,
         bool needlock, bool issetfield, bool isreplacefield, bool isswapfield, bool ismodifyfield,
-        const std::string &fname)
+        const jl_cgval_t *modifyop, const std::string &fname)
 {
     if (!sty->name->mutabl && checked) {
         std::string msg = fname + "immutable struct of type "
@@ -3364,7 +3369,7 @@ static jl_cgval_t emit_setfield(jl_codectx_t &ctx,
         return typed_store(ctx, addr, NULL, rhs, cmp, jfty, strct.tbaa, nullptr,
             wb ? maybe_bitcast(ctx, data_pointer(ctx, strct), T_pjlvalue) : nullptr,
             isboxed, Order, FailOrder, align,
-            needlock, issetfield, isreplacefield, isswapfield, ismodifyfield, maybe_null, fname);
+            needlock, issetfield, isreplacefield, isswapfield, ismodifyfield, maybe_null, modifyop, fname);
     }
 }
 
@@ -3543,7 +3548,7 @@ static jl_cgval_t emit_new_struct(jl_codectx_t &ctx, jl_value_t *ty, size_t narg
             else
                 need_wb = false;
             emit_typecheck(ctx, rhs, jl_svecref(sty->types, i), "new");
-            emit_setfield(ctx, sty, strctinfo, i, rhs, jl_cgval_t(), false, need_wb, AtomicOrdering::NotAtomic, AtomicOrdering::NotAtomic, false, true, false, false, false, "");
+            emit_setfield(ctx, sty, strctinfo, i, rhs, jl_cgval_t(), false, need_wb, AtomicOrdering::NotAtomic, AtomicOrdering::NotAtomic, false, true, false, false, false, nullptr, "");
         }
         return strctinfo;
     }

@@ -216,6 +216,9 @@ static jl_value_t *eval_value(jl_value_t *e, interpreter_state *s)
     else if (head == invoke_sym) {
         return do_invoke(args, nargs, s);
     }
+    else if (head == invoke_modifyfield_sym) {
+        return do_call(args + 1, nargs - 1, s);
+    }
     else if (head == isdefined_sym) {
         jl_value_t *sym = args[0];
         int defined = 0;
