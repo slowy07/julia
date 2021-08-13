@@ -177,15 +177,17 @@ function check_for_missing_packages_and_run_hooks(ast)
     end
 end
 
-function modules_to_be_loaded(ast, mods = Symbol[])
+function modules_to_be_loaded(ast::Expr, mods = Symbol[])
     if ast.head in [:using, :import]
         for arg in ast.args
-            if first(arg.args) isa Symbol # i.e. `Foo`
-                if first(arg.args) != :. # don't include local imports
-                    push!(mods, first(arg.args))
+            arg = arg::Expr
+            arg1 = first(arg.args)
+            if arg1 isa Symbol # i.e. `Foo`
+                if arg1 != :. # don't include local imports
+                    push!(mods, arg1)
                 end
             else # i.e. `Foo: bar`
-                push!(mods, first(first(arg.args).args))
+                push!(mods, first((arg1::Expr).args))
             end
         end
     end
